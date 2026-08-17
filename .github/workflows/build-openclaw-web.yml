@@ -1,0 +1,110 @@
+name: Build Real OpenClaw Web
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-openclaw-web.yml'
+      - 'tools/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout build repository
+        uses: actions/checkout@v4
+
+      - name: Install host prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake make python3 git unzip curl xz-utils
+
+      - name: Fetch real OpenClaw source
+        run: |
+          git clone --depth 1 https://github.com/pjasicek/OpenClaw.git OpenClaw
+
+      - name: Fetch official OpenClaw v1.03 game package
+        run: |
+          curl -L --fail --retry 5 \
+            -o OpenClaw_v1.03.zip \
+            https://github.com/pjasicek/OpenClaw/releases/download/v0.3/OpenClaw_v1.03.zip
+          mkdir game-release
+          unzip -q OpenClaw_v1.03.zip -d game-release
+          find game-release -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
+
+      - name: Install known-compatible Emscripten SDK
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git
+          cd emsdk
+          ./emsdk install 1.39.11
+          ./emsdk activate 1.39.11
+
+      - name: Prepare real game resources
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SRC_RELEASE="OpenClaw/Build_Release"
+          GAME_DIR="game-release"
+          CLAW_REZ=$(find "$GAME_DIR" -type f -iname 'CLAW.REZ' -print -quit)
+          ASSETS_ZIP=$(find "$GAME_DIR" -type f -iname 'ASSETS.ZIP' -print -quit)
+          CONFIG_XML=$(find "$GAME_DIR" -type f -iname 'config.xml' -print -quit)
+          CLACON=$(find "$GAME_DIR" -type f -iname 'clacon.ttf' -print -quit)
+          CONSOLE=$(find "$GAME_DIR" -type f -iname 'console02.tga' -print -quit)
+          test -n "$CLAW_REZ"
+          test -n "$ASSETS_ZIP"
+          cp "$CLAW_REZ" "$SRC_RELEASE/CLAW.REZ"
+          cp "$ASSETS_ZIP" "$SRC_RELEASE/ASSETS.ZIP"
+          cp "$CONFIG_XML" "$SRC_RELEASE/config.xml"
+          cp "$CLACON" "$SRC_RELEASE/clacon.ttf"
+          cp "$CONSOLE" "$SRC_RELEASE/console02.tga"
+          ls -lh "$SRC_RELEASE/CLAW.REZ" "$SRC_RELEASE/ASSETS.ZIP"
+
+      - name: Configure genuine Emscripten build
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source "$GITHUB_WORKSPACE/emsdk/emsdk_env.sh"
+          mkdir -p OpenClaw/build-web
+          cd OpenClaw/build-web
+          emcmake cmake -DEmscripten=1 -DExtern_Config=0 ..
+
+      - name: Compile genuine OpenClaw engine
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source "$GITHUB_WORKSPACE/emsdk/emsdk_env.sh"
+          cmake --build OpenClaw/build-web -- -j2
+
+      - name: Inspect generated web build
+        shell: bash
+        run: |
+          set -euxo pipefail
+          find OpenClaw/Build_Release -maxdepth 1 -type f \
+            \( -name 'openclaw.*' -o -name 'CLAW.REZ' -o -name 'ASSETS.ZIP' \) \
+            -printf '%f %s bytes\n' | sort
+          test -s OpenClaw/Build_Release/openclaw.js
+          test -s OpenClaw/Build_Release/openclaw.wasm
+          test -s OpenClaw/Build_Release/openclaw.data
+          test -s OpenClaw/Build_Release/openclaw.html
+
+      - name: Package genuine web artifacts
+        run: |
+          mkdir -p artifact
+          cp OpenClaw/Build_Release/openclaw.html artifact/
+          cp OpenClaw/Build_Release/openclaw.js artifact/
+          cp OpenClaw/Build_Release/openclaw.wasm artifact/
+          cp OpenClaw/Build_Release/openclaw.data artifact/
+          printf '%s\n' \
+            'Real pjasicek/OpenClaw C++ engine compiled with Emscripten.' \
+            'Official OpenClaw v1.03 release resources are packed in openclaw.data.' \
+            > artifact/BUILD_INFO.txt
+
+      - name: Upload genuine web build
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenClaw-real-web-build
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 7
