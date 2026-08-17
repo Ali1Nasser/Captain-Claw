@@ -1,4 +1,4 @@
-# Triggered build pipeline for the real OpenClaw web port.
+# Real OpenClaw browser build using a matching engine/custom-asset revision.
 name: Build Real OpenClaw Web
 
 on:
@@ -22,18 +22,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake make python3 git unzip curl xz-utils
 
-      - name: Fetch real OpenClaw source
+      - name: Fetch matching real OpenClaw source
+        shell: bash
         run: |
-          git clone --depth 1 https://github.com/pjasicek/OpenClaw.git OpenClaw
+          set -euxo pipefail
+          git clone --no-checkout https://github.com/pjasicek/OpenClaw.git OpenClaw
+          cd OpenClaw
+          git fetch --depth 1 origin 5ee5740ca98377c76b13b50c84f610b0066a4717
+          git checkout --detach 5ee5740ca98377c76b13b50c84f610b0066a4717
+          test "$(git rev-parse HEAD)" = "5ee5740ca98377c76b13b50c84f610b0066a4717"
 
-      - name: Fetch official OpenClaw v1.03 game package
+      - name: Fetch official OpenClaw v1.03 package for original CLAW.REZ
         run: |
           curl -L --fail --retry 5 \
             -o OpenClaw_v1.03.zip \
             https://github.com/pjasicek/OpenClaw/releases/download/v0.3/OpenClaw_v1.03.zip
           mkdir game-release
           unzip -q OpenClaw_v1.03.zip -d game-release
-          find game-release -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
 
       - name: Install known-compatible Emscripten SDK
         run: |
@@ -42,25 +47,30 @@ jobs:
           ./emsdk install 1.39.11
           ./emsdk activate 1.39.11
 
-      - name: Prepare real game resources
+      - name: Prepare matched game resources
         shell: bash
         run: |
           set -euxo pipefail
           SRC_RELEASE="OpenClaw/Build_Release"
-          GAME_DIR="game-release"
-          CLAW_REZ=$(find "$GAME_DIR" -type f -iname 'CLAW.REZ' -print -quit)
-          ASSETS_ZIP=$(find "$GAME_DIR" -type f -iname 'ASSETS.ZIP' -print -quit)
-          CONFIG_XML=$(find "$GAME_DIR" -type f -iname 'config.xml' -print -quit)
-          CLACON=$(find "$GAME_DIR" -type f -iname 'clacon.ttf' -print -quit)
-          CONSOLE=$(find "$GAME_DIR" -type f -iname 'console02.tga' -print -quit)
+          CLAW_REZ=$(find game-release -type f -iname 'CLAW.REZ' -print -quit)
           test -n "$CLAW_REZ"
-          test -n "$ASSETS_ZIP"
+
+          # Only CLAW.REZ comes from the old binary release.
+          # Keep ASSETS.ZIP/config/font/console from the exact source revision,
+          # because those custom assets must match the C++ actor prototype list.
           cp "$CLAW_REZ" "$SRC_RELEASE/CLAW.REZ"
-          cp "$ASSETS_ZIP" "$SRC_RELEASE/ASSETS.ZIP"
-          cp "$CONFIG_XML" "$SRC_RELEASE/config.xml"
-          cp "$CLACON" "$SRC_RELEASE/clacon.ttf"
-          cp "$CONSOLE" "$SRC_RELEASE/console02.tga"
-          ls -lh "$SRC_RELEASE/CLAW.REZ" "$SRC_RELEASE/ASSETS.ZIP"
+
+          test -s "$SRC_RELEASE/ASSETS.ZIP"
+          test -s "$SRC_RELEASE/config.xml"
+          test -s "$SRC_RELEASE/clacon.ttf"
+          test -s "$SRC_RELEASE/console02.tga"
+
+          # Regression guard for the exact V3 failure seen on Android.
+          unzip -l "$SRC_RELEASE/ASSETS.ZIP" | grep -qi 'LEVEL13'
+          grep -q '<LastImplementedLevel>13</LastImplementedLevel>' "$SRC_RELEASE/config.xml"
+
+          echo 'Matched resources:'
+          ls -lh "$SRC_RELEASE/CLAW.REZ" "$SRC_RELEASE/ASSETS.ZIP" "$SRC_RELEASE/config.xml"
 
       - name: Apply Android/mobile web compatibility patch
         run: |
@@ -89,13 +99,13 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          find OpenClaw/Build_Release -maxdepth 1 -type f \
-            \( -name 'openclaw.*' -o -name 'CLAW.REZ' -o -name 'ASSETS.ZIP' \) \
-            -printf '%f %s bytes\n' | sort
           test -s OpenClaw/Build_Release/openclaw.js
           test -s OpenClaw/Build_Release/openclaw.wasm
           test -s OpenClaw/Build_Release/openclaw.data
           test -s OpenClaw/Build_Release/openclaw.html
+          find OpenClaw/Build_Release -maxdepth 1 -type f \
+            \( -name 'openclaw.*' -o -name 'CLAW.REZ' -o -name 'ASSETS.ZIP' \) \
+            -printf '%f %s bytes\n' | sort
 
       - name: Package genuine web artifacts
         run: |
@@ -106,22 +116,24 @@ jobs:
           cp OpenClaw/Build_Release/openclaw.data artifact/
           printf '%s\n' \
             'Real pjasicek/OpenClaw C++ engine compiled with Emscripten.' \
-            'Official OpenClaw v1.03 resources are packed in openclaw.data.' \
+            'Engine/custom assets pinned to OpenClaw commit 5ee5740ca98377c76b13b50c84f610b0066a4717.' \
+            'Original CLAW.REZ comes from official OpenClaw v1.03 release.' \
+            'Important V4 fix: master ASSETS.ZIP is preserved so Level 13 actor prototypes match the engine.' \
             'Android patch: software SDL renderer, growable WASM memory, non-fatal audio fallback, touch enabled.' \
             > artifact/BUILD_INFO.txt
 
-      - name: Build giant standalone HTML V3
+      - name: Build giant standalone HTML V4
         run: |
           python3 tools/package_single_html.py \
             OpenClaw/Build_Release \
-            artifact/OpenClaw_v1.03_FULL_REAL_Mobile_Single_File_V3.html
-          test -s artifact/OpenClaw_v1.03_FULL_REAL_Mobile_Single_File_V3.html
-          ls -lh artifact/OpenClaw_v1.03_FULL_REAL_Mobile_Single_File_V3.html
+            artifact/OpenClaw_FULL_REAL_Mobile_Single_File_V4.html
+          test -s artifact/OpenClaw_FULL_REAL_Mobile_Single_File_V4.html
+          ls -lh artifact/OpenClaw_FULL_REAL_Mobile_Single_File_V4.html
 
-      - name: Upload genuine web build
+      - name: Upload genuine web build V4
         uses: actions/upload-artifact@v4
         with:
-          name: OpenClaw-real-web-build-V3
+          name: OpenClaw-real-web-build-V4
           path: |
             artifact/openclaw.html
             artifact/openclaw.js
@@ -131,10 +143,10 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload giant standalone HTML V3
+      - name: Upload giant standalone HTML V4
         uses: actions/upload-artifact@v4
         with:
-          name: OpenClaw-v1.03-FULL-REAL-Single-HTML-V3
-          path: artifact/OpenClaw_v1.03_FULL_REAL_Mobile_Single_File_V3.html
+          name: OpenClaw-FULL-REAL-Single-HTML-V4
+          path: artifact/OpenClaw_FULL_REAL_Mobile_Single_File_V4.html
           if-no-files-found: error
           retention-days: 7
