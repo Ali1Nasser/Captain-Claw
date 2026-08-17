@@ -62,6 +62,13 @@ jobs:
           cp "$CONSOLE" "$SRC_RELEASE/console02.tga"
           ls -lh "$SRC_RELEASE/CLAW.REZ" "$SRC_RELEASE/ASSETS.ZIP"
 
+      - name: Apply Android/mobile web compatibility patch
+        run: |
+          python3 tools/patch_openclaw_mobile.py OpenClaw
+          grep -n "OPENCLAW_BROWSER_GAME_READY" OpenClaw/OpenClaw/Engine/GameApp/BaseGameApp.cpp
+          grep -n "ALLOW_MEMORY_GROWTH" OpenClaw/CMakeLists.txt
+          grep -n "<ControlOptions>" OpenClaw/Build_Release/config.xml
+
       - name: Configure genuine Emscripten build
         shell: bash
         run: |
@@ -99,21 +106,22 @@ jobs:
           cp OpenClaw/Build_Release/openclaw.data artifact/
           printf '%s\n' \
             'Real pjasicek/OpenClaw C++ engine compiled with Emscripten.' \
-            'Official OpenClaw v1.03 release resources are packed in openclaw.data.' \
+            'Official OpenClaw v1.03 resources are packed in openclaw.data.' \
+            'Android patch: software SDL renderer, growable WASM memory, non-fatal audio fallback, touch enabled.' \
             > artifact/BUILD_INFO.txt
 
-      - name: Build giant standalone HTML
+      - name: Build giant standalone HTML V3
         run: |
           python3 tools/package_single_html.py \
             OpenClaw/Build_Release \
-            artifact/OpenClaw_v1.03_FULL_REAL_Mobile_Single_File.html
-          test -s artifact/OpenClaw_v1.03_FULL_REAL_Mobile_Single_File.html
-          ls -lh artifact/OpenClaw_v1.03_FULL_REAL_Mobile_Single_File.html
+            artifact/OpenClaw_v1.03_FULL_REAL_Mobile_Single_File_V3.html
+          test -s artifact/OpenClaw_v1.03_FULL_REAL_Mobile_Single_File_V3.html
+          ls -lh artifact/OpenClaw_v1.03_FULL_REAL_Mobile_Single_File_V3.html
 
       - name: Upload genuine web build
         uses: actions/upload-artifact@v4
         with:
-          name: OpenClaw-real-web-build
+          name: OpenClaw-real-web-build-V3
           path: |
             artifact/openclaw.html
             artifact/openclaw.js
@@ -123,10 +131,10 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload giant standalone HTML
+      - name: Upload giant standalone HTML V3
         uses: actions/upload-artifact@v4
         with:
-          name: OpenClaw-v1.03-FULL-REAL-Single-HTML
-          path: artifact/OpenClaw_v1.03_FULL_REAL_Mobile_Single_File.html
+          name: OpenClaw-v1.03-FULL-REAL-Single-HTML-V3
+          path: artifact/OpenClaw_v1.03_FULL_REAL_Mobile_Single_File_V3.html
           if-no-files-found: error
           retention-days: 7
