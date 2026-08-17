@@ -102,10 +102,31 @@ jobs:
             'Official OpenClaw v1.03 release resources are packed in openclaw.data.' \
             > artifact/BUILD_INFO.txt
 
+      - name: Build giant standalone HTML
+        run: |
+          python3 tools/package_single_html.py \
+            OpenClaw/Build_Release \
+            artifact/OpenClaw_v1.03_FULL_REAL_Mobile_Single_File.html
+          test -s artifact/OpenClaw_v1.03_FULL_REAL_Mobile_Single_File.html
+          ls -lh artifact/OpenClaw_v1.03_FULL_REAL_Mobile_Single_File.html
+
       - name: Upload genuine web build
         uses: actions/upload-artifact@v4
         with:
           name: OpenClaw-real-web-build
-          path: artifact/
+          path: |
+            artifact/openclaw.html
+            artifact/openclaw.js
+            artifact/openclaw.wasm
+            artifact/openclaw.data
+            artifact/BUILD_INFO.txt
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload giant standalone HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenClaw-v1.03-FULL-REAL-Single-HTML
+          path: artifact/OpenClaw_v1.03_FULL_REAL_Mobile_Single_File.html
           if-no-files-found: error
           retention-days: 7
