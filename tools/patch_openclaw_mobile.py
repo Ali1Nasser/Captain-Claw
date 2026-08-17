@@ -13,6 +13,10 @@ old='''    m_pAudio = new Audio();\n    if (!m_pAudio->Initialize(gameOptions))\
 new='''    m_pAudio = new Audio();\n    if (!m_pAudio->Initialize(gameOptions))\n    {\n#ifdef __EMSCRIPTEN__\n        // WebAudio can remain suspended until a browser gesture. Do not make audio failure fatal.\n        LOG_WARNING("SDL Mixer audio is unavailable in this browser session; continuing without audio.");\n#else\n        LOG_ERROR("Failed to initialize SDL Mixer audio subsystem");\n        return false;\n#endif\n    }\n    else\n    {\n        LOG("Audio successfully initialized.");\n    }\n'''
 if old not in s: raise SystemExit('audio block not found')
 s=s.replace(old,new)
+ready_old='''    m_IsRunning = true;\n\n    return true;\n}'''
+ready_new='''    m_IsRunning = true;\n    LOG("OPENCLAW_BROWSER_GAME_READY");\n\n    return true;\n}'''
+if ready_old not in s: raise SystemExit('ready marker insertion point not found')
+s=s.replace(ready_old, ready_new, 1)
 p.write_text(s)
 
 # 2) Make all audio calls safe when WebAudio could not initialize.
@@ -32,7 +36,6 @@ repls={
 for a,b in repls.items():
     if a not in s: raise SystemExit('audio method marker not found: '+a.splitlines()[0])
     s=s.replace(a,b,1)
-# Volume/activity methods should still update logical state; only guard mixer calls.
 s=s.replace('''    if (m_bSoundOn)\n    {\n        Mix_Volume(-1, m_SoundVolume);\n    }\n''','''    if (m_bSoundOn && m_bIsAudioInitialized)\n    {\n        Mix_Volume(-1, m_SoundVolume);\n    }\n''',1)
 s=s.replace('''    if (active)\n    {\n        Mix_Resume(-1);\n        Mix_Volume(-1, m_SoundVolume);\n    }\n    else\n    {\n        Mix_Pause(-1);\n    }\n\n    m_bSoundOn = active; \n''','''    if (m_bIsAudioInitialized)\n    {\n        if (active)\n        {\n            Mix_Resume(-1);\n            Mix_Volume(-1, m_SoundVolume);\n        }\n        else\n        {\n            Mix_Pause(-1);\n        }\n    }\n\n    m_bSoundOn = active; \n''',1)
 s=s.replace('''    if (active)\n    {\n        ResumeMusic();\n    }\n    else\n    {\n        PauseMusic();\n    }\n\n    m_bMusicOn = active; \n''','''    if (m_bIsAudioInitialized)\n    {\n        if (active)\n        {\n            ResumeMusic();\n        }\n        else\n        {\n            PauseMusic();\n        }\n    }\n\n    m_bMusicOn = active; \n''',1)
@@ -46,11 +49,14 @@ if needle not in s: raise SystemExit('TOTAL_MEMORY marker not found')
 s=s.replace(needle, needle+' -s ALLOW_MEMORY_GROWTH=1',1)
 p.write_text(s)
 
-# 4) Phone-friendly display config; keep all original game resources intact.
+# 4) Phone-friendly display config and enable the source project's touch resolver.
 p=root/'Build_Release/config.xml'
 s=p.read_text()
 s=re.sub(r'<Size width="\d+" height="\d+"\s*/>', '<Size width="960" height="540" />', s, count=1)
 s=re.sub(r'<Scale>[^<]+</Scale>', '<Scale>1.0</Scale>', s, count=1)
+if '<ControlOptions>' not in s:
+    control='''  <ControlOptions>\n    <UseAlternateControls>false</UseAlternateControls>\n    <TouchScreen>\n      <Enable>true</Enable>\n      <DistanceThreshold>0.05</DistanceThreshold>\n      <TimeThreshold>100</TimeThreshold>\n    </TouchScreen>\n  </ControlOptions>\n'''
+    s=s.replace('  <DebugOptions>', control+'  <DebugOptions>', 1)
 p.write_text(s)
 
 print('Applied OpenClaw mobile-web compatibility patch')
